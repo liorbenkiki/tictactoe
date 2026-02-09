@@ -1,0 +1,5 @@
+{
+  "name": "TacTicInfinity",
+  "description": "A modern, responsive Tic Tac Toe game with classic and disappearing moves modes, persistent stats, and player customization.",
+  "requestFramePermissions": []
+}
