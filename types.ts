@@ -2,11 +2,15 @@ export type PlayerSymbol = 'X' | 'O';
 
 export type GameMode = 'classic' | 'disappearing';
 
+export type Difficulty = 'Easy' | 'Medium' | 'Hard';
+
 export interface Player {
   id: number;
   name: string;
   symbol: PlayerSymbol;
   wins: number;
+  isBot: boolean;
+  difficulty: Difficulty;
 }
 
 export interface Move {

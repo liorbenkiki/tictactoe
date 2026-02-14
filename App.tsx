@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings, RotateCcw, Trophy, AlertTriangle, Info } from 'lucide-react';
+import { Settings, RotateCcw, Trophy, AlertTriangle, Info, Bot } from 'lucide-react';
 import { Player, GameState, AppState, GameMode, PlayerSymbol } from './types';
 import { INITIAL_PLAYERS, INITIAL_GAME_STATE } from './constants';
 import { checkWinner, getNextDisappearingMoveIndex } from './utils/gameUtils';
+import { getBestMove } from './utils/aiUtils';
 import { Modal } from './components/Modal';
 import { PlayerCard } from './components/PlayerCard';
 import { Board } from './components/Board';
 
 // Local Storage Key
-const STORAGE_KEY = 'tacticinfinity_data_v1';
+const STORAGE_KEY = 'tacticinfinity_data_v2';
 
 const App: React.FC = () => {
   // State Initialization
@@ -16,6 +17,7 @@ const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(INITIAL_GAME_STATE);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
 
   // Load from LocalStorage on Mount
   useEffect(() => {
@@ -23,7 +25,12 @@ const App: React.FC = () => {
     if (savedData) {
       try {
         const parsed: AppState = JSON.parse(savedData);
-        setPlayers(parsed.players);
+        // Merge with default in case of schema changes (handling the new isBot properties)
+        const mergedPlayers = parsed.players.map((p, i) => ({
+            ...INITIAL_PLAYERS[i],
+            ...p
+        }));
+        setPlayers(mergedPlayers);
         setGameState(parsed.gameState);
       } catch (e) {
         console.error("Failed to parse saved game data", e);
@@ -47,65 +54,101 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [players, gameState, isLoaded]);
 
+  // Derived State
+  const currentPlayer = players[gameState.currentPlayerIndex];
+
   // Game Logic Handlers
   const handleCellClick = useCallback((index: number) => {
+    // Check constraints using the latest closure values
     if (gameState.board[index] || gameState.winner) return;
 
-    const currentPlayer = players[gameState.currentPlayerIndex];
-    let newMoves = [...gameState.moves];
-    let newBoard = [...gameState.board];
+    // Use current state derived directly to avoid stale closures in setTimeout/async updates
+    setGameState(prevState => {
+        const currentP = players[prevState.currentPlayerIndex];
+        let newMoves = [...prevState.moves];
+        let newBoard = [...prevState.board];
 
-    // Handle Disappearing Moves Logic
-    if (gameState.gameMode === 'disappearing') {
-      const playerMoves = newMoves.filter(m => m.playerSymbol === currentPlayer.symbol);
-      if (playerMoves.length >= 3) {
-        // Remove the oldest move for this player
-        const moveToRemove = playerMoves[0]; // The first one in the filtered list is the oldest
-        // Find actual index in main moves array to splice it out? 
-        // Better: Filter the main moves array to exclude the move that matches the cellIndex of the oldest move
-        newMoves = newMoves.filter(m => m.cellIndex !== moveToRemove.cellIndex);
-        newBoard[moveToRemove.cellIndex] = null;
-      }
-    }
+        // Handle Disappearing Moves Logic
+        if (prevState.gameMode === 'disappearing') {
+            const playerMoves = newMoves.filter(m => m.playerSymbol === currentP.symbol);
+            if (playerMoves.length >= 3) {
+                const moveToRemove = playerMoves[0];
+                newMoves = newMoves.filter(m => m.cellIndex !== moveToRemove.cellIndex);
+                newBoard[moveToRemove.cellIndex] = null;
+            }
+        }
 
-    // Add new move
-    newMoves.push({ playerSymbol: currentPlayer.symbol, cellIndex: index });
-    newBoard[index] = currentPlayer.symbol;
+        // Add new move
+        newMoves.push({ playerSymbol: currentP.symbol, cellIndex: index });
+        newBoard[index] = currentP.symbol;
 
-    // Check Win
-    const winResult = checkWinner(newBoard);
+        // Check Win
+        const winResult = checkWinner(newBoard);
+        
+        let newWinner = prevState.winner;
+        let newWinningLine = prevState.winningLine;
+
+        if (winResult) {
+            newWinner = winResult.winner;
+            newWinningLine = winResult.line;
+            if (newWinner !== 'draw') {
+                const currentWins = players.find(p => p.symbol === newWinner)?.wins ?? 0;
+                setPlayers(prevPlayers => prevPlayers.map(p =>
+                    p.symbol === newWinner ? { ...p, wins: currentWins + 1 } : p
+                ));
+            }
+        }
+
+        return {
+            ...prevState,
+            board: newBoard,
+            moves: newMoves,
+            currentPlayerIndex: winResult ? prevState.currentPlayerIndex : (prevState.currentPlayerIndex === 0 ? 1 : 0),
+            winner: newWinner,
+            winningLine: newWinningLine
+        };
+    });
+  }, [players, gameState.gameMode, gameState.board, gameState.winner]);
+
+  // Bot Turn Effect
+  useEffect(() => {
+    // Only run if it's a bot's turn, game is loaded, and no winner yet
+    if (!isLoaded || gameState.winner || !currentPlayer.isBot) return;
+
+    // Start Thinking
+    setIsThinking(true);
     
-    let newWinner = gameState.winner;
-    let newWinningLine = gameState.winningLine;
-    let updatedPlayers = [...players];
-
-    if (winResult) {
-      newWinner = winResult.winner;
-      newWinningLine = winResult.line;
-      if (newWinner !== 'draw') {
-        updatedPlayers = players.map(p => 
-          p.symbol === newWinner ? { ...p, wins: p.wins + 1 } : p
+    const thinkTime = 700; // Artificial delay for natural feel
+    const timer = setTimeout(() => {
+        const bestMove = getBestMove(
+            gameState.board, 
+            gameState.moves, 
+            currentPlayer.symbol, 
+            currentPlayer.difficulty,
+            gameState.gameMode
         );
-      }
-    }
 
-    // Update State
-    setPlayers(updatedPlayers);
-    setGameState(prev => ({
-      ...prev,
-      board: newBoard,
-      moves: newMoves,
-      currentPlayerIndex: winResult ? prev.currentPlayerIndex : (prev.currentPlayerIndex === 0 ? 1 : 0),
-      winner: newWinner,
-      winningLine: newWinningLine
-    }));
+        if (bestMove !== -1) {
+            handleCellClick(bestMove);
+        }
+        setIsThinking(false);
+    }, thinkTime);
 
-  }, [gameState, players]);
+    return () => clearTimeout(timer);
+  }, [
+    gameState.currentPlayerIndex, 
+    gameState.winner, 
+    gameState.board, 
+    gameState.moves, 
+    gameState.gameMode, 
+    isLoaded, 
+    currentPlayer, 
+    handleCellClick
+  ]);
+
 
   const startNewGame = useCallback(() => {
-    // Round Robin Logic
     const nextStarter = gameState.lastStarterIndex === 0 ? 1 : 0;
-    
     setGameState(prev => ({
       ...prev,
       board: Array(9).fill(null),
@@ -118,21 +161,19 @@ const App: React.FC = () => {
   }, [gameState.lastStarterIndex]);
 
   const resetGame = useCallback(() => {
-    // Reset current game but keep stats
      setGameState(prev => ({
       ...prev,
       board: Array(9).fill(null),
       moves: [],
       winner: null,
       winningLine: null,
-      // Keep current turn logic or reset to current starter? Let's keep current starter
       currentPlayerIndex: prev.lastStarterIndex
     }));
   }, []);
 
-  const updatePlayerName = (index: number, name: string) => {
+  const updatePlayer = (index: number, updates: Partial<Player>) => {
     const newPlayers = [...players];
-    newPlayers[index].name = name;
+    newPlayers[index] = { ...newPlayers[index], ...updates };
     setPlayers(newPlayers);
   };
 
@@ -156,7 +197,6 @@ const App: React.FC = () => {
 
   const changeGameMode = (mode: GameMode) => {
     if (mode === gameState.gameMode) return;
-    // Reset game when changing mode
     setGameState(prev => ({
       ...prev,
       gameMode: mode,
@@ -169,8 +209,6 @@ const App: React.FC = () => {
     setIsSettingsOpen(false);
   };
 
-  // Derived State for UI
-  const currentPlayer = players[gameState.currentPlayerIndex];
   const nextDisappearingIndex = gameState.gameMode === 'disappearing' && !gameState.winner
     ? getNextDisappearingMoveIndex(gameState.moves, currentPlayer.symbol) 
     : null;
@@ -208,21 +246,28 @@ const App: React.FC = () => {
             key={p.id}
             player={p}
             isActive={!gameState.winner && gameState.currentPlayerIndex === idx}
-            onUpdateName={(name) => updatePlayerName(idx, name)}
+            onUpdatePlayer={(updates) => updatePlayer(idx, updates)}
             isWinner={gameState.winner === p.symbol}
           />
         ))}
       </div>
 
       {/* Game Board */}
-      <div className="mb-8 w-full flex justify-center">
+      <div className="mb-8 w-full flex justify-center relative">
         <Board 
           board={gameState.board}
           onCellClick={handleCellClick}
           winningLine={gameState.winningLine}
           isGameOver={!!gameState.winner}
           disappearingIndex={nextDisappearingIndex}
+          isInteractable={!isThinking && !currentPlayer.isBot}
         />
+        {isThinking && !gameState.winner && (
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-800/80 backdrop-blur-sm px-4 py-2 rounded-full border border-slate-600 shadow-xl flex items-center gap-2 animate-pulse z-20 pointer-events-none">
+                <Bot size={16} className="text-indigo-400" />
+                <span className="text-xs font-bold text-slate-200">Thinking...</span>
+            </div>
+        )}
       </div>
 
       {/* Game Status / Controls */}
@@ -252,7 +297,8 @@ const App: React.FC = () => {
           <div className="h-16 flex items-center">
               <button 
                 onClick={resetGame}
-                className="text-slate-500 hover:text-slate-300 text-sm font-medium flex items-center gap-1 transition-colors px-4 py-2 rounded-lg hover:bg-slate-800"
+                disabled={isThinking}
+                className="text-slate-500 hover:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-1 transition-colors px-4 py-2 rounded-lg hover:bg-slate-800"
             >
                 <RotateCcw size={14} /> Restart Round
             </button>

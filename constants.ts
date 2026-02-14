@@ -12,8 +12,8 @@ export const WINNING_COMBINATIONS = [
 ];
 
 export const INITIAL_PLAYERS: Player[] = [
-  { id: 0, name: 'Player 1', symbol: 'X', wins: 0 },
-  { id: 1, name: 'Player 2', symbol: 'O', wins: 0 },
+  { id: 0, name: 'Player 1', symbol: 'X', wins: 0, isBot: false, difficulty: 'Medium' },
+  { id: 1, name: 'Player 2', symbol: 'O', wins: 0, isBot: false, difficulty: 'Medium' },
 ];
 
 export const INITIAL_GAME_STATE: GameState = {
