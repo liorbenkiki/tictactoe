@@ -13,15 +13,15 @@ export const WINNING_COMBINATIONS = [
 
 export const INITIAL_PLAYERS: Player[] = [
   { id: 0, name: 'Player 1', symbol: 'X', wins: 0, isBot: false, difficulty: 'Medium' },
-  { id: 1, name: 'Player 2', symbol: 'O', wins: 0, isBot: false, difficulty: 'Medium' },
+  { id: 1, name: 'Player 2', symbol: 'O', wins: 0, isBot: true, difficulty: 'Medium' },
 ];
 
 export const INITIAL_GAME_STATE: GameState = {
-  gameMode: 'classic',
+  gameMode: 'disappearing',
   board: Array(9).fill(null),
   currentPlayerIndex: 0, // Will be randomized on first load
   winner: null,
   winningLine: null,
   moves: [],
-  lastStarterIndex: 0, 
+  lastStarterIndex: 0,
 };
