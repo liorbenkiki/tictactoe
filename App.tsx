@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings, RotateCcw, Trophy, AlertTriangle, Info, Bot } from 'lucide-react';
+import { Settings, RotateCcw, Trophy, AlertTriangle, Info, Bot, Download } from 'lucide-react';
 import { Player, GameState, AppState, GameMode, PlayerSymbol } from './types';
 import { INITIAL_PLAYERS, INITIAL_GAME_STATE } from './constants';
 import { checkWinner, getNextDisappearingMoveIndex } from './utils/gameUtils';
@@ -18,6 +18,25 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = useCallback(async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const result = await installPrompt.userChoice;
+    if (result.outcome === 'accepted') {
+      setInstallPrompt(null);
+    }
+  }, [installPrompt]);
 
   // Load from LocalStorage on Mount
   useEffect(() => {
@@ -308,6 +327,17 @@ const App: React.FC = () => {
               <RotateCcw size={14} /> Restart Round
             </button>
           </div>
+        )}
+
+        {/* Install PWA Button */}
+        {installPrompt && (
+          <button
+            onClick={handleInstallClick}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-full text-sm font-medium transition-all animate-in fade-in slide-in-from-bottom-2"
+          >
+            <Download size={16} />
+            Install App
+          </button>
         )}
       </div>
 
